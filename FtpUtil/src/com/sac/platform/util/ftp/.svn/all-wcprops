@@ -1,0 +1,53 @@
+K 25
+svn:wc:ra_dav:version-url
+V 72
+/sac/newplatform/!svn/ver/96/platform-file/src/com/sac/platform/util/ftp
+END
+FtpParamBean.java
+K 25
+svn:wc:ra_dav:version-url
+V 90
+/sac/newplatform/!svn/ver/98/platform-file/src/com/sac/platform/util/ftp/FtpParamBean.java
+END
+FtpDownLoad.java
+K 25
+svn:wc:ra_dav:version-url
+V 89
+/sac/newplatform/!svn/ver/98/platform-file/src/com/sac/platform/util/ftp/FtpDownLoad.java
+END
+FtpExist.java
+K 25
+svn:wc:ra_dav:version-url
+V 86
+/sac/newplatform/!svn/ver/98/platform-file/src/com/sac/platform/util/ftp/FtpExist.java
+END
+FtpUrlParase.java
+K 25
+svn:wc:ra_dav:version-url
+V 90
+/sac/newplatform/!svn/ver/98/platform-file/src/com/sac/platform/util/ftp/FtpUrlParase.java
+END
+FtpTest.java
+K 25
+svn:wc:ra_dav:version-url
+V 85
+/sac/newplatform/!svn/ver/98/platform-file/src/com/sac/platform/util/ftp/FtpTest.java
+END
+FtpDelete.java
+K 25
+svn:wc:ra_dav:version-url
+V 87
+/sac/newplatform/!svn/ver/98/platform-file/src/com/sac/platform/util/ftp/FtpDelete.java
+END
+FtpUpload.java
+K 25
+svn:wc:ra_dav:version-url
+V 87
+/sac/newplatform/!svn/ver/98/platform-file/src/com/sac/platform/util/ftp/FtpUpload.java
+END
+IFtpOperator.java
+K 25
+svn:wc:ra_dav:version-url
+V 90
+/sac/newplatform/!svn/ver/98/platform-file/src/com/sac/platform/util/ftp/IFtpOperator.java
+END
