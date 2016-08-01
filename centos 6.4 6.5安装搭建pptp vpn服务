@@ -1,0 +1,1049 @@
+http://www.dabu.info/centos6-4-structures-pptp-vpn.html
+
+今天在vps上装pptp ，和以往一样，只不过不是在自己的vps上，上次ssh代理被封ip，对我的身心造成了深深的影响，所以，这次拿网友放我这的vps来搭建vpn环境。pptp的搭建比openvpn容易多了。以下是我的配置过程，其实和网上差不多，centos6.4 搭建 centos 6.4 搭建pptp vpn ppp = 2.4.4 is needed by pptpd-1.3.4-2.rhel5.x86_64
+
+centos6.4安装搭建pptp vpn服务的大致步骤简介，下面会有详细的步骤(我不喜欢写大纲，决定麻烦，但是有人还是看不懂，所以勉为其难的写了个，实在不会的，我在文章的后面提供一些网上的centos pptp vpn 一键安装包，有人写了就不必再写一遍了，一键安装包要是有问题，也别找我，新手想享受自己亲手一步步具体搭建过程的乐趣，就接着看看吧)：
+
+1.先检查vps是否满足配置pptp vpn的环境。因为有的openvz的vps被母鸡给禁用了。其实，你在配置前最好向vps的客服发TK，可能客服会帮你开通vpn或者客服那里会给你他们自己定制的vpn一键安装包也有可能。
+2.接着是安装配置pptp vpn的相关软件，安装ppp和iptables。
+配置安装好后的pptp软件，这个不像windows那样，安装的过程就是配置的过程。linux的要安装完之后，修改配置文件，才算是完成配置。
+3.启动pptp vpn 服务。此时，就是检验你能够vpn拨号成功，如果你拨号成功了，说明你的pptp vpn的安装配置就算真正的完成了。但是此时只能登录vpn，却不能用来上网。
+4.开启内核和iptables的转发功能。这个步骤是为了让你连上vpn之后，能够上网，上那些yourporn，youtube之类的。这步是最关键的，很多人能成功拨号，登录vpn，但是却不能上网就是因为这个步骤没做好。这步骤完成了，你就可以尽情去国外的网站访问了。
+#########################################手动搭建配置pptp vpn 详细方法如下########
+
+第一步：检测是否符合pptp的搭建环境的要求
+
+服务器版本：CentOs 6.4 xen vps
+这里说一下，如果你的linux内核版本 等于或高于 2.6.15 ，内核集成了MPPE。可以用下面命令进行测试内核是否支持
+#modprobe ppp-compress-18 && echo ok
+返回“ok”说明测试通过。但是返回报错“FATAL: Module ppp_mppe not found.”，也不能说不支持，因为modprobe命令是去 /lib/modules/`uname -r` 找模块，但是很多时候，这个目录下是空的。所以这个命令没什么太大用处。
+于是有人又提出一个命令，通过查看内核编译的配置文件config.gz：
+#zgrep MPPE /proc/config.gz
+返回CONFIG_PPP_MPPE=y 或 =m说明内核已经编译了MPPE，通过测试。但是呢，这个命令其实也没什么用，因为有的vps空间商会不会备份config.gz文件。所以，config.gz文件都没有，这命令也是废了。
+所以，最后建议直接使用下面的指令：
+#cat /dev/net/tun
+如果这条指令显示结果为下面的文本，则表明通过：
+cat: /dev/net/tun: File descriptor in bad state
+上述任意一个命令测试通过，就能安装pptp。否则就只能考虑openvpn。
+确认自己的vps能够支持pptp vpn 或其他类型的vpn。最好的方法是直接问vps空间商，因为没有人比他们更清楚了。没准人家还会提供vpn一键安装包呢！！！
+有部分的vps需要发tk，让vps空间商的技术客服为你的VPS打开TUN/TAP/PPP功能了，而有部分vps控制面板上提供打开TUN/TAP/PPP功能的按钮，自己就能手动开启。
+Centos 6.4内核版本在2.6.15以上，都默认集成了MPPE和PPP，因此下面检查可以忽略：
+http://www.dabu.info/?p=2178
+#rpm -q ppp //查询当前系统的ppp是否默认集成了，以及ppp的版本
+检查PPP是否支持MPPE
+用以下命令检查PPP是否支持MPPE：
+#strings '/usr/sbin/pppd' |grep -i mppe | wc --lines
+http://www.dabu.info/?p=2178
+如果以上命令输出为“0”则表示不支持；输出为“30”或更大的数字就表示支持，MPPE（Microsoft Point to Point Encryption，微软点对点加密）。
+第二步：
+1.安装ppp和iptables
+PPTPD要求Linux内核支持mppe，一般来说CentOS安装时已经包含了
+http://www.dabu.info/?p=2178
+#yum install -y perl ppp iptables //centos默认安装了iptables和ppp
+2.安装pptpd
+刚才用了yum安装了ppp,但是这里有个问题，几乎大部分的人都会在这里遇到ppp和pptpd不兼容的错误。因为yum安装ppp，总是安装最新版本的ppp，而由于安装的ppp的版本不同，那么就需要安装对应版本的pptpd才行。(参考我的文章《ppp = 2.4.4 is needed by pptpd-1.3.4-2.rhel5.x86_64的解决办法及原因|大步's blog》)
+
+我们要先查看已经安装的ppp的版本，在去找对应的pptpd版本。我手头刚好有两个vps，一个是前年装的pptp vpn，一个是一年后装的pptp vpn，所以，装的yum install ppp的版本不同。
+
+使用下面的命令查看ppp的版本，前提你是yum安装的ppp。
+
+旧的vps上的ppp版本显示：
+
+#yum list installed ppp
+
+显示：
+
+ppp.i386 2.4.4-2.el5 installed
+新的vps上的ppp版本显示；
+
+#yum list installed ppp
+
+显示：
+
+ppp.i686 2.4.5-5.el6 @base
+所以，要对根据ppp版本选择对应的pptpd版本。这里我主要列出常用的。
+
+ppp 2.4.4——————>pptpd 1.3.4
+ppp 2.4.5——————>pptpd 1.4.0
+贴个ppp和pptpd各个版本的下载地址；http://poptop.sourceforge.net/yum/stable/packages/
+
+大家下载的时候注意，分清楚你系统的版本是64位的还是32位的。我个人建议ppp用yum安装，pptpd用rpm的安装，因为如果全都rpm或者源码安装，依赖关系很是烦人。文件名含有数字64的就是64位版本，没有的就是32位版本。可以用下面的命令查看自己的系统是32位还是64位的。
+
+#getconf LONG_BIT
+下面假设我这里的ppp是2.4.4版本，然后安装pptpd
+
+第一种安装pptpd的方法是直接用yum安装，让电脑自动选择对应的版本：
+
+先加入yum源：
+
+#rpm -Uvh http://poptop.sourceforge.net/yum/stable/rhel6/pptp-release-current.noarch.rpm
+然后用yum安装pptpd：
+
+#yum install pptpd
+这是最省时间和力气的。余下的和手动安装没什么区别了。
+
+ 
+
+第二种是手动安装pptpd包：
+
+对于32位CentOS，执行
+wget http://acelnmp.googlecode.com/files/pptpd-1.3.4-1.rhel5.1.i386.rpm
+rpm -ivh pptpd-1.3.4-1.rhel5.1.i386.rpm
+对于64位CentOS，执行
+wget http://acelnmp.googlecode.com/files/pptpd-1.3.4-1.rhel5.1.x86_64.rpm
+rpm -ivh pptpd-1.3.4-1.rhel5.1.x86_64.rpm
+这里贴上32位的pptpd的rpm的下载地址：
+http://www.400gb.com/file/34722122
+64位安装的时候如果出现：http://www.dabu.info/?p=2178
+
+warning: pptpd-1.3.4-2.rhel5.x86_64.rpm: Header V3 DSA/SHA1 Signature, key ID 862acc42: NOKEY
+error: Failed dependencies:
+ppp = 2.4.4 is needed by pptpd-1.3.4-2.rhel5.x86_64
+原因是pptpd与PPP不兼容，那么，此时用#yum list installed ppp 命令查看ppp版本，极有可能ppp是2.4.5版本的。所以，我们要下载pptp 1.4.0版本才行，而且这里是64位的系统。下载pptpd-1.4.0-1.el6.x86_64.rpm安装即可。这就是我说的出现版本不兼容的问题，当ppp版本和pptpd版本不兼容时候，就会出现类似的错误。
+这里我分享下pptpd 下载地址；
+64位pptpd-1.4.0-1.el6.x86_64.rpm的下载地址：http://www.pipipan.com/file/18457333
+32位pptpd-1.4.0-1.el6.i686.rpm版本下载地址：http://www.400gb.com/file/54124192
+看到有人建议用--nodeps --force 这个参数，我个人不建议，这个参数可能以后会出现奇怪的问题，但是如果实在不行，你就用吧
+ 
+
+第三步：修改配置文件
+
+1.配置文件/etc/ppp/options.pptpd
+
+#cp /etc/ppp/options.pptpd /etc/ppp/options.pptpd.bak
+#vi /etc/ppp/options.pptpd
+解析：我还建议是在原配置文件上添加内容来配置pptp ，省的不必要的麻烦和问题
+ 
+
+将如下内容添加到到options.pptpd中：
+
+ms-dns 8.8.8.8
+ms-dns 8.8.4.4
+然后保存这个文件。
+
+解析：ms-dns 8.8.8.8， ms-dns 8.8.4.4是使用google的dns服务器。
+
+2.配置文件/etc/ppp/chap-secrets
+
+#cp /etc/ppp/chap-secrets   /etc/ppp/chap-secrets.bak
+#vi /etc/ppp/chap-secrets
+chap-secrets内容如下：
+
+# Secrets for authentication using CHAP
+# client server secret IP addresses
+myusername pptpd mypassword *
+//myusername是你的vpn帐号，mypassword是你的vpn的密码，*表示对任何ip，记得不要丢了这个星号。我这里根据这个格式，假设我的vpn的帐号是ksharpdabu，密码是 sky。那么，应该如下：
+ksharpdabu pptpd sky *
+ 
+
+3.配置文件/etc/pptpd.conf
+
+#cp /etc/pptpd.conf     /etc/pptpd.conf.bak
+#vi /etc/pptpd.conf
+
+添加下面两行：
+
+localip 192.168.9.1
+remoteip 192.168.9.11-30 //表示vpn客户端获得ip的范围
+ 
+
+关键点：pptpd.conf这个配置文件必须保证最后是以空行结尾才行，否则会导致启动pptpd服务时，出现“Starting pptpd:”，一直卡着不动的问题，无法启动服务，切记呀！（相关文档可以查看：Starting pptpd: 运行不下去的原因）
+
+ppp = 2.4.4 is needed by pptpd-1.3.4-2.rhel5.x86_64
+
+ 
+
+4.配置文件/etc/sysctl.conf
+
+#vi /etc/sysctl.conf //修改内核设置，使其支持转发
+将net.ipv4.ip_forward = 0 改成 net.ipv4.ip_forward = 1
+
+保存修改后的文件
+
+#/sbin/sysctl -p
+ 
+
+第四步：启动pptp vpn服务和iptables
+
+#/sbin/service pptpd start 或者 #service pptpd start
+经过前面步骤，我们的VPN已经可以拨号登录了，但是还不能访问任何网页。最后一步就是添加iptables转发规则了，输入下面的指令：
+
+启动iptables和nat转发功能，很关键的呀：
+
+#/sbin/service iptables start //启动iptables
+
+#/sbin/iptables -t nat -A POSTROUTING -o eth0 -s 192.168.9.0/24 -j MASQUERADE 或者使用下面的一种：
+
+#iptables -t nat -A POSTROUTING -o eth0 -s 192.168.9.0/24 -j SNAT --to-source 207.210.83.140
+
+//注意：命令中的 "-o eth0"是指定网卡名称，如果是多个网卡，就根据需要将 -o eth0 改成你  -o ethXX (ehtXX是你网卡的名称)   ，可以通过ifconfig 查看有哪那些连通外网的网卡，一般vps都是单网卡的，而且大都网卡默认名都叫eth0  。但是事情总是多样的，所以如果你的上网的网卡不是 叫 eth0  ，那么就必须去掉 -o eth0  。直接让系统判断你用的网卡，所以将上面的命令改成：
+
+iptables -t nat -A POSTROUTING    -s 192.168.9.0/24 -j SNAT --to-source 207.210.83.140
+
+ 
+
+//你需要将207.210.83.140替换成你的vps的公网ip地址，因为这里我写的是我的。还有就是有人说我这--to-source前只有一个横杠，其实是有两个横杠的。文章在编辑模式下显示是两个横杠，因为用的是英文输入法，所以，发表后就变成了一个横杆，而且在源码下复制粘贴也是一横，只有在编辑模式下才能看清楚是两横。但是可以明显看到to前面的那一横比source前的那横长一些，这些都是我操作记录下的命令，不会有错的。为了防止你们出错，我还是用不同的颜色标记吧。
+
+这里我先前写的不是很详细，现在补上：
+
+需要注意的是，这个指令中的“192.168.9.0/24”是根据之前的配置文件中的“localip”网段来改变的(网上有的教程是192.168.0.0/24 )，比如你设置的 “10.0.0.1”网段，则应该改为“10.0.0.0/24”。此外还有一点需要注意的是eth0，如果你的外网网卡不是eth0，而是eth1（比 如SoftLayer的服务器就是这样的情况），那么请记得将eth0也更改为对应的网卡编号，不然是上不了网的！
+如果你的linux vps是ppp或者ADSL这种由DHCP动态分配获取ip的方式（当然vps的ip基本都是是固定的。如果你是XEN的vps，那么这个转发规则其实也是适用的，就是让vps自己判断自己的ip，省去了我们指定。），那么就需要用-j MASQUERADE这种写法，就是ip伪装。当然如果使用iptables -t nat -A POSTROUTING -o eth0 -s 192.168.9.0/24 -j SNAT --to-source XXX.XXX.XXX.XXX 这种转发规则其实也是可以的，这样亲自指定自己的vps的ip地址。以后你通过vpn访问网站，显示的就是这个ip了。
+#/etc/init.d/iptables save //保存iptables的转发规则
+
+#/sbin/service iptables restart //重新启动iptables
+
+ 
+
+最后一步：重启pptp vpn
+
+#service pptpd restart
+#############################################3
+
+客户端如何拨号登陆vpn，我就不写了，大家可以自行google，因为系统那么多，我不可能xp，win7，centos，mac之类的每个都写，何况网上一大堆，只要你pptp vpn服务器搭建好了，客户端登陆的选择就是简单的事。如果这个也不知道，那我就没法了，自己动手吧。
+
+ 
+
+多余的步骤：设置pptp vpn 开机启动
+
+有的人懒的重启后手动开启服务，所以下面我再补上开机自动启动pptp vpn 和 iptables的命令
+
+#chkconfig pptpd on //开机启动pptp vpn服务
+
+#chkconfig iptables on //开机启动iptables
+
+ 
+
+有问题请先看log，查google，百度，论坛，有的人连软件下载都不自己去搜索，对于这样的人，我也懒得理睬。
+
+ 
+
+贴个openvz的pptp vpn 一件安装包吧：centos，fedora，redhat  6.x 使用的脚本(vps上从没安装过的可以试试这个脚本，不保证一定成功，因为我没测试，只是根据上面的文章内容写的，嫌手动安装难打字):   点击下载
+
+
+#!/bin/bash
+# Interactive pptp vpn  install script for an OpenVZ VPS
+# surport  : Cenost ,Fedora  6.x 
+# Augest 24, 2014 v1.00
+#url ：   http://www.dabu.info/?p=2178
+
+echo "######################################################"
+echo "Interactive PoPToP Install Script for an OpenVZ VPS"
+echo
+echo "Make sure to contact your provider and have them enable"
+echo "IPtables and ppp modules prior to setting up PoPToP."
+echo "PPP can also be enabled from SolusVM."
+echo
+echo "You need to set up the server before creating more users."
+echo "A separate user is required per connection or machine."
+echo "######################################################"
+echo
+echo
+echo "######################################################"
+echo "Select on option:"
+echo "1) Set up new PoPToP server AND create one user"
+echo "2) Create additional users"
+echo "######################################################"
+read x
+if test $x -eq 1; then
+echo "Enter username that you want to create (eg. client1 or john):"
+read u
+echo "Specify password that you want the server to use:"
+read p
+
+## get the VPS IP
+#ip=`ifconfig venet0:0 | grep 'inet addr' | awk {'print $2'} | sed s/.*://`
+
+echo
+echo "######################################################"
+echo "Downloading and Installing ppp  and   pptpd  "
+echo "######################################################"
+yum   install  ppp   -y
+rpm -Uvh http://poptop.sourceforge.net/yum/stable/rhel6/pptp-release-current.noarch.rpm
+yum    install  pptpd  -y
+
+echo
+echo "######################################################"
+echo "Creating Server Config"
+echo "######################################################"
+cp /etc/ppp/options.pptpd /etc/ppp/options.pptpd.bak
+sed -i '70a ms-dns 8.8.8.8'    /etc/ppp/options.pptpd
+
+
+
+
+
+
+# setting up pptpd.conf
+sed -i '101a localip 192.168.9.1'    /etc/pptpd.conf
+sed -i '102a  remoteip 192.168.9.11-30'    /etc/pptpd.conf
+
+# adding new user
+echo "$u * $p *" >> /etc/ppp/chap-secrets
+
+echo
+echo "######################################################"
+echo "Forwarding IPv4 and Enabling it on boot"
+echo "######################################################"
+cat >> /etc/sysctl.conf <<END
+net.ipv4.ip_forward=1
+END
+sysctl -p
+
+echo
+echo "######################################################"
+echo "Updating IPtables Routing and Enabling it on boot"
+echo "######################################################"
+iptables -t nat -A POSTROUTING -o eth0 -j  MASQUERADE
+# saves iptables routing rules and enables them on-boot
+iptables-save > /etc/iptables.conf
+
+cat > /etc/network/if-pre-up.d/iptables <<END
+#!/bin/sh
+iptables-restore < /etc/iptables.conf
+END
+
+chmod +x /etc/network/if-pre-up.d/iptables
+cat >> /etc/ppp/ip-up <<END
+ifconfig ppp0 mtu 1400
+END
+
+echo
+echo "######################################################"
+echo "Restarting PoPToP"
+echo "######################################################"
+sleep 5
+/etc/init.d/pptpd restart
+
+echo
+echo "######################################################"
+echo "Server setup complete!"
+echo "Connect to your VPS at $ip with these credentials:"
+echo "Username:$u ##### Password: $p"
+echo "######################################################"
+
+# runs this if option 2 is selected
+elif test $x -eq 2; then
+echo "Enter username that you want to create (eg. client1 or john):"
+read u
+echo "Specify password that you want the server to use:"
+read p
+
+
+
+# adding new user
+echo "$u * $p *" >> /etc/ppp/chap-secrets
+
+echo
+echo "######################################################"
+echo "Addtional user added!"
+echo "Connect to your VPS at $ip with these credentials:"
+echo "Username:$u ##### Password: $p"
+echo "######################################################"
+
+else
+echo "Invalid selection, quitting."
+exit
+fi
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+55
+56
+57
+58
+59
+60
+61
+62
+63
+64
+65
+66
+67
+68
+69
+70
+71
+72
+73
+74
+75
+76
+77
+78
+79
+80
+81
+82
+83
+84
+85
+86
+87
+88
+89
+90
+91
+92
+93
+94
+95
+96
+97
+98
+99
+100
+101
+102
+103
+104
+105
+106
+107
+108
+109
+110
+111
+112
+113
+114
+115
+116
+117
+118
+119
+120
+121
+122
+123
+124
+#!/bin/bash
+# Interactive pptp vpn  install script for an OpenVZ VPS
+# surport  : Cenost ,Fedora  6.x 
+# Augest 24, 2014 v1.00
+#url ：   http://www.dabu.info/?p=2178
+ 
+echo "######################################################"
+echo "Interactive PoPToP Install Script for an OpenVZ VPS"
+echo
+echo "Make sure to contact your provider and have them enable"
+echo "IPtables and ppp modules prior to setting up PoPToP."
+echo "PPP can also be enabled from SolusVM."
+echo
+echo "You need to set up the server before creating more users."
+echo "A separate user is required per connection or machine."
+echo "######################################################"
+echo
+echo
+echo "######################################################"
+echo "Select on option:"
+echo "1) Set up new PoPToP server AND create one user"
+echo "2) Create additional users"
+echo "######################################################"
+read x
+if test $x -eq 1; then
+echo "Enter username that you want to create (eg. client1 or john):"
+read u
+echo "Specify password that you want the server to use:"
+read p
+ 
+## get the VPS IP
+#ip=`ifconfig venet0:0 | grep 'inet addr' | awk {'print $2'} | sed s/.*://`
+ 
+echo
+echo "######################################################"
+echo "Downloading and Installing ppp  and   pptpd  "
+echo "######################################################"
+yum   install  ppp   -y
+rpm -Uvh http://poptop.sourceforge.net/yum/stable/rhel6/pptp-release-current.noarch.rpm
+yum    install  pptpd  -y
+ 
+echo
+echo "######################################################"
+echo "Creating Server Config"
+echo "######################################################"
+cp /etc/ppp/options.pptpd /etc/ppp/options.pptpd.bak
+sed -i '70a ms-dns 8.8.8.8'    /etc/ppp/options.pptpd
+ 
+ 
+ 
+ 
+ 
+ 
+# setting up pptpd.conf
+sed -i '101a localip 192.168.9.1'    /etc/pptpd.conf
+sed -i '102a  remoteip 192.168.9.11-30'    /etc/pptpd.conf
+ 
+# adding new user
+echo "$u * $p *" >> /etc/ppp/chap-secrets
+ 
+echo
+echo "######################################################"
+echo "Forwarding IPv4 and Enabling it on boot"
+echo "######################################################"
+cat >> /etc/sysctl.conf <<END
+net.ipv4.ip_forward=1
+END
+sysctl -p
+ 
+echo
+echo "######################################################"
+echo "Updating IPtables Routing and Enabling it on boot"
+echo "######################################################"
+iptables -t nat -A POSTROUTING -o eth0 -j  MASQUERADE
+# saves iptables routing rules and enables them on-boot
+iptables-save > /etc/iptables.conf
+ 
+cat > /etc/network/if-pre-up.d/iptables <<END
+#!/bin/sh
+iptables-restore < /etc/iptables.conf
+END
+ 
+chmod +x /etc/network/if-pre-up.d/iptables
+cat >> /etc/ppp/ip-up <<END
+ifconfig ppp0 mtu 1400
+END
+ 
+echo
+echo "######################################################"
+echo "Restarting PoPToP"
+echo "######################################################"
+sleep 5
+/etc/init.d/pptpd restart
+ 
+echo
+echo "######################################################"
+echo "Server setup complete!"
+echo "Connect to your VPS at $ip with these credentials:"
+echo "Username:$u ##### Password: $p"
+echo "######################################################"
+ 
+# runs this if option 2 is selected
+elif test $x -eq 2; then
+echo "Enter username that you want to create (eg. client1 or john):"
+read u
+echo "Specify password that you want the server to use:"
+read p
+ 
+ 
+ 
+# adding new user
+echo "$u * $p *" >> /etc/ppp/chap-secrets
+ 
+echo
+echo "######################################################"
+echo "Addtional user added!"
+echo "Connect to your VPS at $ip with these credentials:"
+echo "Username:$u ##### Password: $p"
+echo "######################################################"
+ 
+else
+echo "Invalid selection, quitting."
+exit
+fi
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+复制下面代码到install.sh中，然后 sh isntall.sh。这个是只支持debian和ubuntu系列，centos不支持。
+
+
+#!/bin/bash
+# Interactive PoPToP install script for an OpenVZ VPS
+# Tested on Debian 5, 6, and Ubuntu 11.04
+# April 2, 2013 v1.11
+# http://www.putdispenserhere.com/pptp-debian-ubuntu-openvz-setup-script/
+
+echo "######################################################"
+echo "Interactive PoPToP Install Script for an OpenVZ VPS"
+echo
+echo "Make sure to contact your provider and have them enable"
+echo "IPtables and ppp modules prior to setting up PoPToP."
+echo "PPP can also be enabled from SolusVM."
+echo
+echo "You need to set up the server before creating more users."
+echo "A separate user is required per connection or machine."
+echo "######################################################"
+echo
+echo
+echo "######################################################"
+echo "Select on option:"
+echo "1) Set up new PoPToP server AND create one user"
+echo "2) Create additional users"
+echo "######################################################"
+read x
+if test $x -eq 1; then
+echo "Enter username that you want to create (eg. client1 or john):"
+read u
+echo "Specify password that you want the server to use:"
+read p
+
+# get the VPS IP
+ip=`ifconfig venet0:0 | grep 'inet addr' | awk {'print $2'} | sed s/.*://`
+
+echo
+echo "######################################################"
+echo "Downloading and Installing PoPToP"
+echo "######################################################"
+apt-get update
+apt-get -y install pptpd
+
+echo
+echo "######################################################"
+echo "Creating Server Config"
+echo "######################################################"
+cat > /etc/ppp/pptpd-options <<END
+name pptpd
+refuse-pap
+refuse-chap
+refuse-mschap
+require-mschap-v2
+require-mppe-128
+ms-dns 8.8.8.8
+ms-dns 8.8.4.4
+proxyarp
+nodefaultroute
+lock
+nobsdcomp
+END
+
+# setting up pptpd.conf
+echo "option /etc/ppp/pptpd-options" > /etc/pptpd.conf
+echo "logwtmp" >> /etc/pptpd.conf
+echo "localip $ip" >> /etc/pptpd.conf
+echo "remoteip 10.1.0.1-100" >> /etc/pptpd.conf
+
+# adding new user
+echo "$u * $p *" >> /etc/ppp/chap-secrets
+
+echo
+echo "######################################################"
+echo "Forwarding IPv4 and Enabling it on boot"
+echo "######################################################"
+cat >> /etc/sysctl.conf <<END
+net.ipv4.ip_forward=1
+END
+sysctl -p
+
+echo
+echo "######################################################"
+echo "Updating IPtables Routing and Enabling it on boot"
+echo "######################################################"
+iptables -t nat -A POSTROUTING -j SNAT --to $ip
+# saves iptables routing rules and enables them on-boot
+iptables-save > /etc/iptables.conf
+
+cat > /etc/network/if-pre-up.d/iptables <<END
+#!/bin/sh
+iptables-restore < /etc/iptables.conf
+END
+
+chmod +x /etc/network/if-pre-up.d/iptables
+cat >> /etc/ppp/ip-up <<END
+ifconfig ppp0 mtu 1400
+END
+
+echo
+echo "######################################################"
+echo "Restarting PoPToP"
+echo "######################################################"
+sleep 5
+/etc/init.d/pptpd restart
+
+echo
+echo "######################################################"
+echo "Server setup complete!"
+echo "Connect to your VPS at $ip with these credentials:"
+echo "Username:$u ##### Password: $p"
+echo "######################################################"
+
+# runs this if option 2 is selected
+elif test $x -eq 2; then
+echo "Enter username that you want to create (eg. client1 or john):"
+read u
+echo "Specify password that you want the server to use:"
+read p
+
+# get the VPS IP
+ip=`ifconfig venet0:0 | grep 'inet addr' | awk {'print $2'} | sed s/.*://`
+
+# adding new user
+echo "$u * $p *" >> /etc/ppp/chap-secrets
+
+echo
+echo "######################################################"
+echo "Addtional user added!"
+echo "Connect to your VPS at $ip with these credentials:"
+echo "Username:$u ##### Password: $p"
+echo "######################################################"
+
+else
+echo "Invalid selection, quitting."
+exit
+fi
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+55
+56
+57
+58
+59
+60
+61
+62
+63
+64
+65
+66
+67
+68
+69
+70
+71
+72
+73
+74
+75
+76
+77
+78
+79
+80
+81
+82
+83
+84
+85
+86
+87
+88
+89
+90
+91
+92
+93
+94
+95
+96
+97
+98
+99
+100
+101
+102
+103
+104
+105
+106
+107
+108
+109
+110
+111
+112
+113
+114
+115
+116
+117
+118
+119
+120
+121
+122
+123
+124
+125
+126
+127
+128
+129
+130
+131
+132
+133
+#!/bin/bash
+# Interactive PoPToP install script for an OpenVZ VPS
+# Tested on Debian 5, 6, and Ubuntu 11.04
+# April 2, 2013 v1.11
+# http://www.putdispenserhere.com/pptp-debian-ubuntu-openvz-setup-script/
+ 
+echo "######################################################"
+echo "Interactive PoPToP Install Script for an OpenVZ VPS"
+echo
+echo "Make sure to contact your provider and have them enable"
+echo "IPtables and ppp modules prior to setting up PoPToP."
+echo "PPP can also be enabled from SolusVM."
+echo
+echo "You need to set up the server before creating more users."
+echo "A separate user is required per connection or machine."
+echo "######################################################"
+echo
+echo
+echo "######################################################"
+echo "Select on option:"
+echo "1) Set up new PoPToP server AND create one user"
+echo "2) Create additional users"
+echo "######################################################"
+read x
+if test $x -eq 1; then
+echo "Enter username that you want to create (eg. client1 or john):"
+read u
+echo "Specify password that you want the server to use:"
+read p
+ 
+# get the VPS IP
+ip=`ifconfig venet0:0 | grep 'inet addr' | awk {'print $2'} | sed s/.*://`
+ 
+echo
+echo "######################################################"
+echo "Downloading and Installing PoPToP"
+echo "######################################################"
+apt-get update
+apt-get -y install pptpd
+ 
+echo
+echo "######################################################"
+echo "Creating Server Config"
+echo "######################################################"
+cat > /etc/ppp/pptpd-options <<END
+name pptpd
+refuse-pap
+refuse-chap
+refuse-mschap
+require-mschap-v2
+require-mppe-128
+ms-dns 8.8.8.8
+ms-dns 8.8.4.4
+proxyarp
+nodefaultroute
+lock
+nobsdcomp
+END
+ 
+# setting up pptpd.conf
+echo "option /etc/ppp/pptpd-options" > /etc/pptpd.conf
+echo "logwtmp" >> /etc/pptpd.conf
+echo "localip $ip" >> /etc/pptpd.conf
+echo "remoteip 10.1.0.1-100" >> /etc/pptpd.conf
+ 
+# adding new user
+echo "$u * $p *" >> /etc/ppp/chap-secrets
+ 
+echo
+echo "######################################################"
+echo "Forwarding IPv4 and Enabling it on boot"
+echo "######################################################"
+cat >> /etc/sysctl.conf <<END
+net.ipv4.ip_forward=1
+END
+sysctl -p
+ 
+echo
+echo "######################################################"
+echo "Updating IPtables Routing and Enabling it on boot"
+echo "######################################################"
+iptables -t nat -A POSTROUTING -j SNAT --to $ip
+# saves iptables routing rules and enables them on-boot
+iptables-save > /etc/iptables.conf
+ 
+cat > /etc/network/if-pre-up.d/iptables <<END
+#!/bin/sh
+iptables-restore < /etc/iptables.conf
+END
+ 
+chmod +x /etc/network/if-pre-up.d/iptables
+cat >> /etc/ppp/ip-up <<END
+ifconfig ppp0 mtu 1400
+END
+ 
+echo
+echo "######################################################"
+echo "Restarting PoPToP"
+echo "######################################################"
+sleep 5
+/etc/init.d/pptpd restart
+ 
+echo
+echo "######################################################"
+echo "Server setup complete!"
+echo "Connect to your VPS at $ip with these credentials:"
+echo "Username:$u ##### Password: $p"
+echo "######################################################"
+ 
+# runs this if option 2 is selected
+elif test $x -eq 2; then
+echo "Enter username that you want to create (eg. client1 or john):"
+read u
+echo "Specify password that you want the server to use:"
+read p
+ 
+# get the VPS IP
+ip=`ifconfig venet0:0 | grep 'inet addr' | awk {'print $2'} | sed s/.*://`
+ 
+# adding new user
+echo "$u * $p *" >> /etc/ppp/chap-secrets
+ 
+echo
+echo "######################################################"
+echo "Addtional user added!"
+echo "Connect to your VPS at $ip with these credentials:"
+echo "Username:$u ##### Password: $p"
+echo "######################################################"
+ 
+else
+echo "Invalid selection, quitting."
+exit
+fi
+ 
+
+############################完#############################
+如果一件安装包都不知道用，那就真的没法子了
+FAQ：
+
+1.报错：重启时候提示
+
+# service pptpd restart
+Shutting down pptpd: [失败]
+Starting pptpd: [失败]
+Warning: a pptpd restart does not terminate existing
+connections, so new connections may be assigned the same IP
+address and cause unexpected results. Use restart-kill to
+destroy existing connections during a restart.
+
+解决办法：根据提示，可能是你重启pptpd服务的时候，没有切断已经存在的连接，所以新的连接会被分配为相同的ip地址，导致一些不可预料的问题。所以你重启 pptpd服务前，先用下面的命令断开当前存在的连接：#service pptpd restart-kill，然后再#service pptpd start
+
+2.有的vps不支持加密连接，导致不能拨号成功登陆vpn。
+
+解决办法：是编辑/etc/ppp/options.pptpd（vim /etc/ppp/options.pptpd），在require-mppe-128前面加个#（# require-mppe-128）；
+
+在windows的VPN连接属性里，加密方式选择为可选加密，并允许未加密的密码。
+
+ 
+
+3.能够直接用域名作为vpn的拨号地址，而不用vps的ip。因为ip不方便记忆，我自己也记不住自己的服务器的ip。
+
+解决办法：去dns里面设置，将域名设置为A记录，这样就可以直接用域名作为vpn的服务器的地址了。
+
+4.有的链接 pptp vpn时候失败，提示619.
+
+解决办法：执行下面的命令：
+
+# rm -r /dev/ppp
+
+# mknod /dev/ppp c 108 0 然后重启VPS即可。
+
+也可以参考这片文章《VPN连接时提示619错误处理办法及vpn连接成功后无法上网解决办法》
+
+centos6.4 安装 搭建 pptp vpn ppp = 2.4.4 is needed by pptpd-1.3.4-2.rhel5.x86_64
+
+转载请注明：大步's Blog » centos 6.4 6.5安装搭建pptp vpn服务
